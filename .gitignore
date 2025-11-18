@@ -1,0 +1,40 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Config and runtime
+*.log
+*.toml.bak
+.env
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Certificates (generated at runtime)
+*.crt
+*.key
+*.pem
+
+# Installers
+*.msi
+*.deb
+*.rpm
+*.dmg
+*.AppImage

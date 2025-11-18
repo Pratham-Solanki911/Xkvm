@@ -1,0 +1,65 @@
+[package]
+name = "kvm-client"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kvm-client"
+path = "src/main.rs"
+
+[dependencies]
+kvm-common = { path = "../common" }
+
+# Async runtime
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+
+# TLS
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+tokio-rustls = { workspace = true }
+webpki-roots = "0.26"
+
+# mDNS
+mdns-sd = { workspace = true }
+
+# Input injection
+enigo = { workspace = true }
+
+# Clipboard
+arboard = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+bincode = { workspace = true }
+uuid = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Hashing
+sha2 = { workspace = true }
+
+# Cross-platform
+dirs = { workspace = true }
+
+# CLI
+clap = { version = "4.4", features = ["derive"] }
+
+# Hostname
+hostname = "0.3"
+
+# Date/time
+chrono = { workspace = true }
+
+# Random
+rand = "0.8"

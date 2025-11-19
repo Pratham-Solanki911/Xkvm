@@ -117,16 +117,34 @@ jobs:
           libudev-dev \
           pkg-config
 
+    - name: Install Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+
+    - name: Install Tauri CLI
+      run: cargo install tauri-cli
+
+    - name: Install Frontend Dependencies
+      run: cd ui && npm install
+
     - name: Build Release
-      run: cargo build --release --target ${{ matrix.target }}
+      run: cd ui && cargo tauri build -- --target ${{ matrix.target }}
 
     - name: Create Archive (Unix)
-      if: runner.os != 'Windows'
+      if: runner.os == 'Linux'
       run: |
         mkdir -p release
-        cp target/${{ matrix.target }}/release/${{ matrix.server_bin }} release/
-        cp target/${{ matrix.target }}/release/${{ matrix.client_bin }} release/
-        cp README.md LICENSE release/
+        cp ui/src/target/release/bundle/appimage/*.AppImage release/
+        cp ui/src/target/release/bundle/deb/*.deb release/
+        cd release
+        tar czf ../${{ matrix.artifact_name }}.tar.gz *
+
+    - name: Create Archive (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        mkdir -p release
+        cp -r ui/src/target/release/bundle/macos/*.app release/
         cd release
         tar czf ../${{ matrix.artifact_name }}.tar.gz *
 
@@ -135,9 +153,7 @@ jobs:
       shell: pwsh
       run: |
         New-Item -ItemType Directory -Force -Path release
-        Copy-Item target/${{ matrix.target }}/release/${{ matrix.server_bin }} release/
-        Copy-Item target/${{ matrix.target }}/release/${{ matrix.client_bin }} release/
-        Copy-Item README.md, LICENSE release/
+        Copy-Item ui/src/target/release/bundle/msi/*.msi release/
         Compress-Archive -Path release/* -DestinationPath ${{ matrix.artifact_name }}.zip
 
     - name: Upload Artifact (Unix)

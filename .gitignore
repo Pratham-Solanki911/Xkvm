@@ -38,3 +38,7 @@ Thumbs.db
 *.rpm
 *.dmg
 *.AppImage
+
+# Node
+ui/node_modules/
+ui/.vite/

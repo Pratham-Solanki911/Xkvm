@@ -1,11 +1,12 @@
 mod config;
 mod discovery;
+mod file_transfer;
 mod inject;
 
 use anyhow::Result;
 use clap::Parser;
 use config::Config;
-use kvm_common::{deserialize_envelope, serialize_envelope, Caps, Envelope, PROTOCOL_VERSION};
+use kvm_common::{read_envelope, send_envelope, Caps, Envelope, PROTOCOL_VERSION};
 use rustls::ClientConfig;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -37,6 +38,10 @@ struct Args {
     /// Verbose logging
     #[arg(short, long)]
     verbose: bool,
+
+    /// File to send
+    #[arg(long)]
+    send_file: Option<String>,
 }
 
 #[tokio::main]
@@ -86,12 +91,27 @@ async fn main() -> Result<()> {
 
     // Connect to server
     info!("Connecting to server at {}...", server_addr);
-    connect_to_server(&server_addr).await?;
+    let (tls_stream, file_transfer_port) = connect_to_server(&server_addr).await?;
+
+    if let Some(file_path) = args.send_file {
+        let file_transfer_addr = server_addr.replace(
+            &args.port.to_string(),
+            &file_transfer_port.to_string(),
+        );
+        info!("Sending file '{}' to {}", file_path, file_transfer_addr);
+        file_transfer::send_file(&file_transfer_addr, &std::path::PathBuf::from(file_path)).await?;
+    } else {
+        run_message_loop(tls_stream).await?;
+    }
 
     Ok(())
 }
 
-async fn connect_to_server(addr: &str) -> Result<()> {
+use tokio_rustls::client::TlsStream;
+
+async fn connect_to_server(
+    addr: &str,
+) -> Result<(TlsStream<TcpStream>, u16)> {
     // Set up TLS
     let mut root_store = rustls::RootCertStore::empty();
     root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -134,9 +154,10 @@ async fn connect_to_server(addr: &str) -> Result<()> {
 
     // Receive HelloAck
     let ack = read_envelope(&mut tls_stream).await?;
-    match ack {
-        Envelope::HelloAck => {
+    let file_transfer_port = match ack {
+        Envelope::HelloAck { file_transfer_port } => {
             info!("Handshake complete");
+            file_transfer_port
         }
         Envelope::Error(msg) => {
             anyhow::bail!("Server error: {}", msg);
@@ -176,6 +197,10 @@ async fn connect_to_server(addr: &str) -> Result<()> {
         }
     }
 
+    Ok((tls_stream, file_transfer_port))
+}
+
+async fn run_message_loop(mut tls_stream: TlsStream<TcpStream>) -> Result<()> {
     // Start input injection
     let injector = inject::InputInjector::new();
 
@@ -191,7 +216,8 @@ async fn connect_to_server(addr: &str) -> Result<()> {
             }
             Envelope::ClipboardSet { text } => {
                 info!("Received clipboard: {} bytes", text.len());
-                // TODO: Set clipboard
+                let mut clipboard = arboard::Clipboard::new()?;
+                clipboard.set_text(text)?;
             }
             Envelope::Ping(ts) => {
                 send_envelope(&mut tls_stream, &Envelope::Pong(ts)).await?;
@@ -209,34 +235,6 @@ async fn connect_to_server(addr: &str) -> Result<()> {
         }
     }
 
-    Ok(())
-}
-
-async fn read_envelope<S>(stream: &mut S) -> Result<Envelope>
-where
-    S: AsyncReadExt + Unpin,
-{
-    let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf).await?;
-    let len = u32::from_be_bytes(len_buf) as usize;
-
-    if len > 10 * 1024 * 1024 {
-        anyhow::bail!("Message too large: {} bytes", len);
-    }
-
-    let mut data = vec![0u8; len];
-    stream.read_exact(&mut data).await?;
-
-    deserialize_envelope(&data).map_err(Into::into)
-}
-
-async fn send_envelope<S>(stream: &mut S, envelope: &Envelope) -> Result<()>
-where
-    S: AsyncWriteExt + Unpin,
-{
-    let data = serialize_envelope(envelope)?;
-    stream.write_all(&data).await?;
-    stream.flush().await?;
     Ok(())
 }
 

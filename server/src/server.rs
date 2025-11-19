@@ -3,20 +3,23 @@ use crate::config::Config;
 use crate::file_transfer::FileTransferServer;
 use crate::tls;
 use anyhow::Result;
-use kvm_common::{deserialize_envelope, serialize_envelope, Caps, Envelope, PROTOCOL_VERSION};
+use kvm_common::{read_envelope, send_envelope, Caps, Envelope, PROTOCOL_VERSION};
 use rustls::ServerConfig;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, RwLock};
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, error, info, warn};
+use arboard::Clipboard;
 
 pub async fn run_server(
     port: u16,
     file_port: u16,
     tls_config: Arc<ServerConfig>,
     config: Arc<RwLock<Config>>,
+    forwarding_enabled: Arc<AtomicBool>,
 ) -> Result<()> {
     let addr = format!("0.0.0.0:{}", port);
     let listener = TcpListener::bind(&addr).await?;
@@ -38,11 +41,15 @@ pub async fn run_server(
                 info!("New connection from {}", addr);
                 let acceptor = acceptor.clone();
                 let config = config.clone();
+                let forwarding_enabled = forwarding_enabled.clone();
 
                 tokio::spawn(async move {
                     match acceptor.accept(stream).await {
                         Ok(tls_stream) => {
-                            if let Err(e) = handle_client(tls_stream, config).await {
+                            if let Err(e) =
+                                handle_client(tls_stream, config, forwarding_enabled, file_port)
+                                    .await
+                            {
                                 error!("Error handling client {}: {}", addr, e);
                             }
                         }
@@ -62,6 +69,8 @@ pub async fn run_server(
 async fn handle_client<S>(
     mut stream: S,
     config: Arc<RwLock<Config>>,
+    forwarding_enabled: Arc<AtomicBool>,
+    file_port: u16,
 ) -> Result<()>
 where
     S: AsyncReadExt + AsyncWriteExt + Unpin,
@@ -76,7 +85,7 @@ where
                 warn!("Protocol version mismatch: {} vs {}", version, PROTOCOL_VERSION);
             }
 
-            send_envelope(&mut stream, &Envelope::HelloAck).await?;
+            send_envelope(&mut stream, &Envelope::HelloAck { file_transfer_port: file_port }).await?;
         }
         _ => {
             send_envelope(&mut stream, &Envelope::Error("Expected Hello".to_string())).await?;
@@ -121,10 +130,26 @@ where
 
     capture.start(event_tx);
 
-    // Spawn task to send captured events to client
-    let capture_clone = capture.clone();
-    let mut write_half = stream;
+    let (tx, mut rx) = mpsc::unbounded_channel::<Envelope>();
 
+    // Split the stream for concurrent reads and writes
+    let (mut read_half, mut write_half) = tokio::io::split(stream);
+
+    // Task to read incoming messages from the client
+    tokio::spawn(async move {
+        loop {
+            match read_envelope(&mut read_half).await {
+                Ok(envelope) => {
+                    if tx.send(envelope).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    // Task to send captured events to client
     tokio::spawn(async move {
         while let Some(event) = event_rx.recv().await {
             let envelope = Envelope::Input(event);
@@ -135,40 +160,45 @@ where
         }
     });
 
-    // Main message loop (simplified for now)
-    // In full implementation, we'd handle incoming messages from client
-    // For now, just keep connection alive
-    tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+    let mut clipboard = Clipboard::new()?;
+    let mut last_clipboard = clipboard.get_text().unwrap_or_default();
+    let mut clipboard_interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
 
-    Ok(())
-}
-
-async fn read_envelope<S>(stream: &mut S) -> Result<Envelope>
-where
-    S: AsyncReadExt + Unpin,
-{
-    // Read length prefix (u32 big-endian)
-    let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf).await?;
-    let len = u32::from_be_bytes(len_buf) as usize;
-
-    if len > 10 * 1024 * 1024 {
-        anyhow::bail!("Message too large: {} bytes", len);
+    loop {
+        tokio::select! {
+            Some(envelope) = rx.recv() => {
+                match envelope {
+                    Envelope::Goodbye => {
+                        info!("Client disconnected");
+                        break;
+                    }
+                    _ => {
+                        warn!("Unhandled message: {:?}", envelope);
+                    }
+                }
+            }
+            _ = clipboard_interval.tick() => {
+                if let Ok(current_clipboard) = clipboard.get_text() {
+                    if current_clipboard != last_clipboard {
+                        last_clipboard = current_clipboard.clone();
+                        let envelope = Envelope::ClipboardSet {
+                            text: current_clipboard,
+                        };
+                        if send_envelope(&mut write_half, &envelope).await.is_err() {
+                            error!("Failed to send clipboard update");
+                            break;
+                        }
+                    }
+                }
+            }
+            _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)) => {
+                let is_forwarding = forwarding_enabled.load(Ordering::SeqCst);
+                if is_forwarding != capture.is_enabled() {
+                    capture.set_enabled(is_forwarding);
+                    debug!("Set forwarding to {}", is_forwarding);
+                }
+            }
+        }
     }
-
-    // Read message data
-    let mut data = vec![0u8; len];
-    stream.read_exact(&mut data).await?;
-
-    deserialize_envelope(&data).map_err(Into::into)
-}
-
-async fn send_envelope<S>(stream: &mut S, envelope: &Envelope) -> Result<()>
-where
-    S: AsyncWriteExt + Unpin,
-{
-    let data = serialize_envelope(envelope)?;
-    stream.write_all(&data).await?;
-    stream.flush().await?;
     Ok(())
 }

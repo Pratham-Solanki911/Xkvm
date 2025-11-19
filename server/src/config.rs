@@ -22,6 +22,9 @@ pub struct Config {
 
     /// File transfer directory
     pub transfer_dir: PathBuf,
+
+    /// File transfer port
+    pub file_transfer_port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +59,7 @@ impl Default for Config {
             auto_forward: false,
             clipboard_sync: true,
             transfer_dir,
+            file_transfer_port: kvm_common::DEFAULT_FILE_PORT,
         }
     }
 }

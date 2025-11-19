@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub const PROTOCOL_VERSION: &str = "0.1.0";
 pub const DEFAULT_CONTROL_PORT: u16 = 4000;
@@ -34,7 +35,7 @@ pub enum Envelope {
         caps: Caps,
     },
     /// Server acknowledges the hello
-    HelloAck,
+    HelloAck { file_transfer_port: u16 },
     /// Client requests pairing
     PairRequest {
         nonce: [u8; 16],
@@ -145,6 +146,34 @@ pub fn serialize_envelope(envelope: &Envelope) -> Result<Vec<u8>> {
 /// Deserialize an envelope from bytes (without length prefix)
 pub fn deserialize_envelope(data: &[u8]) -> Result<Envelope> {
     bincode::deserialize(data).map_err(Into::into)
+}
+
+pub async fn read_envelope<S>(stream: &mut S) -> Result<Envelope>
+where
+    S: AsyncRead + Unpin,
+{
+    let mut len_buf = [0u8; 4];
+    stream.read_exact(&mut len_buf).await?;
+    let len = u32::from_be_bytes(len_buf) as usize;
+
+    if len > 10 * 1024 * 1024 {
+        anyhow::bail!("Message too large: {} bytes", len);
+    }
+
+    let mut data = vec![0u8; len];
+    stream.read_exact(&mut data).await?;
+
+    deserialize_envelope(&data).map_err(Into::into)
+}
+
+pub async fn send_envelope<S>(stream: &mut S, envelope: &Envelope) -> Result<()>
+where
+    S: AsyncWrite + Unpin,
+{
+    let data = serialize_envelope(envelope)?;
+    stream.write_all(&data).await?;
+    stream.flush().await?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -9,12 +9,15 @@ license.workspace = true
 name = "kvm-server"
 path = "src/main.rs"
 
+[lib]
+name = "kvm_server"
+path = "src/lib.rs"
+
 [dependencies]
 kvm-common = { path = "../common" }
 
 # Async runtime
 tokio = { workspace = true }
-tokio-util = { workspace = true }
 
 # TLS
 rustls = { workspace = true }
@@ -25,15 +28,11 @@ rcgen = "0.12"
 # mDNS
 mdns-sd = { workspace = true }
 
-# Input capture
-rdev = { workspace = true }
-
 # Clipboard
 arboard = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
-serde_json = { workspace = true }
 toml = { workspace = true }
 bincode = { workspace = true }
 uuid = { workspace = true }
@@ -44,7 +43,6 @@ tracing-subscriber = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
-thiserror = { workspace = true }
 
 # Hashing
 sha2 = { workspace = true }
@@ -52,8 +50,8 @@ sha2 = { workspace = true }
 # Cross-platform
 dirs = { workspace = true }
 
-# Hotkeys
-global-hotkey = "0.5"
+# Random PIN generation
+rand = "0.8"
 
 # CLI
 clap = { version = "4.4", features = ["derive"] }
@@ -63,3 +61,11 @@ hostname = "0.3"
 
 # Date/time
 chrono = { workspace = true }
+
+# Input capture/injection. `unstable_grab` lets us block local input while
+# forwarding is on (Windows/macOS only - see server/src/capture.rs); on
+# Linux we fall back to `rdev::listen`, which cannot block anything.
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+rdev = { workspace = true, features = ["unstable_grab"] }
+[target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
+rdev = { workspace = true }

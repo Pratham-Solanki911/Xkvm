@@ -1,0 +1,2 @@
+# Allow members of the "input" group to access /dev/uinput for input injection
+KERNEL=="uinput", MODE="0660", GROUP="input"

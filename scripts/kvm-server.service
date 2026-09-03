@@ -1,26 +1,13 @@
 [Unit]
-Description=KVM-RS Server - Share keyboard, mouse, files, and clipboard
-After=network.target
+Description=KVM-RS Server Service
+After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
-User=%i
-Group=input
-ExecStart=/usr/local/bin/kvm-server
+ExecStart=/usr/bin/kvm-server
 Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-# Security hardening
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=/home/%i/.config/kvm-rs
-
-# Allow access to input devices
-SupplementaryGroups=input
+Environment="RUST_LOG=info"
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

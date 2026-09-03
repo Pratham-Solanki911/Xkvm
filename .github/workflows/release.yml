@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_release:
+    name: Build Release on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: kvm-rs-linux-x86_64
+            asset_name: kvm-rs-${{ github.ref_name }}-linux-x86_64.tar.gz
+          - os: windows-latest
+            artifact_name: kvm-rs-windows-x86_64
+            asset_name: kvm-rs-${{ github.ref_name }}-windows-x86_64.zip
+          - os: macos-latest
+            artifact_name: kvm-rs-macos-x86_64
+            asset_name: kvm-rs-${{ github.ref_name }}-macos-x86_64.tar.gz
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Install Linux dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libx11-dev libxi-dev libxtst-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libudev-dev
+
+    - name: Build
+      run: cargo build --release -p kvm-server -p kvm-client
+
+    - name: Build .deb package (Linux)
+      if: runner.os == 'Linux'
+      run: bash scripts/build-linux-package.sh
+
+    - name: Package (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        mkdir release_pkg
+        cp target/release/kvm-server.exe release_pkg/
+        cp target/release/kvm-client.exe release_pkg/
+        cp README.md release_pkg/ 2>$null
+        Copy-Item -Recurse -Path scripts -Destination release_pkg/scripts
+        Copy-Item -Recurse -Path docs -Destination release_pkg/docs -ErrorAction SilentlyContinue
+        Compress-Archive -Path release_pkg/* -DestinationPath ${{ matrix.asset_name }}
+
+    - name: Package (Linux/macOS)
+      if: runner.os != 'Windows'
+      run: |
+        mkdir release_pkg
+        cp target/release/kvm-server release_pkg/
+        cp target/release/kvm-client release_pkg/
+        cp README.md release_pkg/ || echo "No README"
+        cp -r scripts release_pkg/scripts
+        cp -r docs release_pkg/docs || echo "No docs"
+        tar -czf ${{ matrix.asset_name }} -C release_pkg .
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.asset_name }}
+        path: ${{ matrix.asset_name }}
+
+    - name: Upload .deb package
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: kvm-rs-${{ github.ref_name }}-linux-x86_64-deb
+        path: deb-package/*.deb
+
+  create_release:
+    needs: build_release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*/*.zip
+            artifacts/*/*.tar.gz
+            artifacts/*/*.deb

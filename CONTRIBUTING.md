@@ -86,6 +86,38 @@ cargo test
 cargo check
 ```
 
+### Using a private build directory
+
+If you are working alongside other agents/contributors on the same checkout
+(or just want to avoid lock contention between parallel `cargo` invocations),
+point `CARGO_TARGET_DIR` at a directory scoped to your own work instead of
+sharing the workspace-wide `target/`:
+
+```bash
+CARGO_TARGET_DIR=target/my-area cargo build -p kvm-server
+CARGO_TARGET_DIR=target/my-area cargo test -p kvm-server
+```
+
+This keeps your build artifacts (and the exclusive lock `cargo` takes on
+`CARGO_TARGET_DIR`) separate from anyone else's, at the cost of a slower
+first build in the new directory.
+
+### Where configs and certificates live
+
+At runtime, the server and client each load a TOML config from the OS config
+directory (via the `dirs` crate) unless `--config <path>` is given:
+
+- Server: `<config_dir>/kvm-rs/server.toml` (created with defaults on first
+  run if missing).
+- Client: `<config_dir>/kvm-rs/client.toml` (same behavior).
+
+`<config_dir>` is `%APPDATA%` on Windows, `~/Library/Application Support` on
+macOS, and `~/.config` on Linux (XDG). The server's TLS certificate and key
+(`server.crt` / `server.key`) are generated alongside its config on first run
+and are never checked into the repository — delete them to force
+regeneration (this changes the server's fingerprint, so paired clients will
+need to re-trust it).
+
 ## Running the Project
 
 ### Server
@@ -113,13 +145,29 @@ cargo run -p kvm-client --release -- --server 192.168.1.100
 ### Rust Style
 
 - Follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/)
-- Use `rustfmt` for code formatting:
+- Use `rustfmt` for code formatting. Check first, then apply:
   ```bash
-  cargo fmt
+  cargo fmt --all --check
+  cargo fmt --all
   ```
-- Use `clippy` for linting:
+- Use `clippy` for linting, matching what CI runs:
   ```bash
-  cargo clippy -- -D warnings
+  cargo clippy --workspace --exclude ui --all-targets -- -D warnings
+  ```
+- Run the test suite:
+  ```bash
+  cargo test --workspace --exclude ui
+  ```
+- The `ui` crate (Tauri) is excluded from the commands above because it
+  needs its frontend built first. Build and check it separately:
+  ```bash
+  cd ui
+  npm ci
+  npm run build
+  cd ..
+  cargo check -p ui
+  cargo clippy -p ui -- -D warnings
+  cargo fmt -p ui --check
   ```
 
 ### Commit Messages

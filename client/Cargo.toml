@@ -9,6 +9,10 @@ license.workspace = true
 name = "kvm-client"
 path = "src/main.rs"
 
+[lib]
+name = "kvm_client"
+path = "src/lib.rs"
+
 [dependencies]
 kvm-common = { path = "../common" }
 
@@ -18,9 +22,7 @@ tokio-util = { workspace = true }
 
 # TLS
 rustls = { workspace = true }
-rustls-pemfile = { workspace = true }
 tokio-rustls = { workspace = true }
-webpki-roots = "0.26"
 
 # mDNS
 mdns-sd = { workspace = true }
@@ -33,7 +35,6 @@ arboard = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
-serde_json = { workspace = true }
 toml = { workspace = true }
 bincode = { workspace = true }
 uuid = { workspace = true }
@@ -44,7 +45,6 @@ tracing-subscriber = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
-thiserror = { workspace = true }
 
 # Hashing
 sha2 = { workspace = true }
@@ -63,3 +63,8 @@ chrono = { workspace = true }
 
 # Random
 rand = "0.8"
+
+[dev-dependencies]
+kvm-server = { path = "../server" }
+rcgen = "0.12"
+rdev = { workspace = true }

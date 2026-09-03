@@ -13,16 +13,20 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Create udev rule
-cat > /etc/udev/rules.d/99-kvm-rs.rules << 'EOF'
-# Allow members of the input group to access uinput
-KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"
+# Resolve the rules file relative to this script's location so the .rules
+# file in this directory is the single source of truth (no duplicated rule
+# text to drift out of sync).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RULES_SRC="$SCRIPT_DIR/99-kvm-rs.rules"
 
-# Alternative: create uinput device if it doesn't exist
-KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"
-EOF
+if [ ! -f "$RULES_SRC" ]; then
+    echo "Error: could not find $RULES_SRC"
+    exit 1
+fi
 
-echo "Udev rule created at /etc/udev/rules.d/99-kvm-rs.rules"
+cp "$RULES_SRC" /etc/udev/rules.d/99-kvm-rs.rules
+
+echo "Udev rule installed at /etc/udev/rules.d/99-kvm-rs.rules"
 
 # Reload udev rules
 echo "Reloading udev rules..."

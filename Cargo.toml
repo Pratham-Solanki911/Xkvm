@@ -2,6 +2,11 @@
 members = ["common", "server", "client", "ui"]
 resolver = "2"
 
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
@@ -49,7 +54,7 @@ toml = "0.8"
 sha2 = "0.10"
 
 # Date/time
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 
 # Cross-platform paths
 dirs = "5.0"
